@@ -77,6 +77,8 @@ export interface DeepseekCollectedOutput
 export interface ConversationState
 {
     session: DeepseekSession;
+    systemText: string | null;
+    toolsFingerprint: string | null;
     parentMessageId: number | null;
     updatedAt: number;
 }

@@ -3,7 +3,7 @@ import { getConversationState } from "./conversation";
 import { collectDeepseekOutput } from "./deepseek-stream";
 import { PROXY_API_KEY } from "./env";
 import { anthropicError } from "./errors";
-import { buildDeepseekPrompt } from "./prompt";
+import { buildDeepseekPrompt, extractSystemText, getToolsFingerprint } from "./prompt";
 import { splitTextForSse, writeSseEvent } from "./sse";
 import { parseToolCallFromText } from "./tool-call";
 import type { AnthropicRequest } from "./types";
@@ -149,9 +149,17 @@ export async function handleMessages(req: Request): Promise<Response>
     return anthropicError("`messages` must be a non-empty array");
   }
 
-  const prompt = buildDeepseekPrompt(body);
   const client = await getClient();
   const conversation = await getConversationState(req, client);
+  const systemText = extractSystemText(body.system);
+  const toolsFingerprint = getToolsFingerprint(body);
+  const shouldIncludeSystem = conversation.systemText !== systemText;
+  const shouldIncludeTools = conversation.toolsFingerprint !== toolsFingerprint;
+  const prompt = buildDeepseekPrompt(body, {
+    includeSystem: shouldIncludeSystem,
+    includeTools: shouldIncludeTools,
+  });
+
   conversation.session.setParentMessageId(conversation.parentMessageId);
 
   const deepseekResponse = await client.sendMessage(prompt, conversation.session, {
@@ -175,6 +183,8 @@ export async function handleMessages(req: Request): Promise<Response>
   {
     conversation.parentMessageId = deepseekOutput.responseMessageId;
     conversation.session.setParentMessageId(deepseekOutput.responseMessageId);
+    conversation.systemText = systemText;
+    conversation.toolsFingerprint = toolsFingerprint;
     conversation.updatedAt = Date.now();
   }
 

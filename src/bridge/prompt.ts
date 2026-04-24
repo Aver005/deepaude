@@ -123,7 +123,7 @@ function extractMessageText(content: AnthropicMessage["content"]): string
   return texts.join("\n").trim();
 }
 
-function extractSystemText(system: AnthropicRequest["system"]): string
+export function extractSystemText(system: AnthropicRequest["system"]): string
 {
   if (typeof system === "string")
   {
@@ -157,23 +157,8 @@ function extractSystemText(system: AnthropicRequest["system"]): string
   return "";
 }
 
-export function buildDeepseekPrompt(body: AnthropicRequest): string
+function appendToolsInstruction(chunks: string[], body: AnthropicRequest): void
 {
-  const chunks: string[] = [];
-  const systemText = extractSystemText(body.system);
-  if (systemText.length > 0)
-  {
-    chunks.push(`System:\n${systemText}`);
-  }
-
-  for (const message of body.messages)
-  {
-    const text = extractMessageText(message.content);
-    if (!text) continue;
-    const role = message.role === "assistant" ? "Assistant" : "User";
-    chunks.push(`${role}:\n${text}`);
-  }
-
   if (Array.isArray(body.tools) && body.tools.length > 0)
   {
     const toolNames = body.tools.map((tool) => tool.name).join(", ");
@@ -186,6 +171,53 @@ export function buildDeepseekPrompt(body: AnthropicRequest): string
         "Do not add markdown fences, explanations, or fake tool results.",
       ].join("\n"),
     );
+  }
+}
+
+function getLastRelevantMessage(messages: AnthropicMessage[]): AnthropicMessage | null
+{
+  for (let index = messages.length - 1; index >= 0; index -= 1)
+  {
+    const message = messages[index];
+    if (message?.role === "user") return message;
+  }
+
+  if (messages.length === 0) return null;
+  return messages[messages.length - 1] ?? null;
+}
+
+export function getToolsFingerprint(body: AnthropicRequest): string
+{
+  if (!Array.isArray(body.tools) || body.tools.length === 0) return "";
+  return JSON.stringify(body.tools);
+}
+
+export function buildDeepseekPrompt(
+  body: AnthropicRequest,
+  options: { includeSystem: boolean; includeTools: boolean },
+): string
+{
+  const chunks: string[] = [];
+  const systemText = extractSystemText(body.system);
+  if (options.includeSystem && systemText.length > 0)
+  {
+    chunks.push(`System:\n${systemText}`);
+  }
+
+  const message = getLastRelevantMessage(body.messages);
+  if (message)
+  {
+    const text = extractMessageText(message.content);
+    if (text)
+    {
+      const role = message.role === "assistant" ? "Assistant" : "User";
+      chunks.push(`${role}:\n${text}`);
+    }
+  }
+
+  if (options.includeTools)
+  {
+    appendToolsInstruction(chunks, body);
   }
 
   chunks.push("Assistant:");

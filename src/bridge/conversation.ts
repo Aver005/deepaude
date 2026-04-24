@@ -30,6 +30,8 @@ export async function getConversationState(
   const created: ConversationState = {
     session,
     parentMessageId: session.getParentMessageId(),
+    systemText: null,
+    toolsFingerprint: null,
     updatedAt: Date.now(),
   };
   conversationStore.set(key, created);
