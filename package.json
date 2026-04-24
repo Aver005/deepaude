@@ -7,6 +7,7 @@
         "start": "bun run src/index.ts",
         "lint": "bunx eslint .",
         "lint:fix": "bunx eslint . --fix",
+        "check": "tsc -b",
         "format": "bunx prettier . --write"
     },
     "devDependencies": {
