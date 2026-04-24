@@ -124,6 +124,7 @@ curl -X POST http://localhost:4141/v1/messages \
 ```
 
 Бридж выполняет:
+
 1. Конвертацию Anthropic-формата в промпт DeepSeek
 2. Обработку streaming-ответов
 3. Парсинг tool calls из текстовых ответов
@@ -131,11 +132,11 @@ curl -X POST http://localhost:4141/v1/messages \
 
 ## 🔧 Конфигурация
 
-| Переменная | Описание | Значение по умолчанию |
-|------------|----------|----------------------|
-| `DEEPSEEK_TOKEN` | Токен API DeepSeek | **Обязателен** |
-| `PORT` | Порт сервера | `4141` |
-| `PROXY_API_KEY` | API ключ для аутентификации | `null` |
+| Переменная       | Описание                    | Значение по умолчанию |
+| ---------------- | --------------------------- | --------------------- |
+| `DEEPSEEK_TOKEN` | Токен API DeepSeek          | **Обязателен**        |
+| `PORT`           | Порт сервера                | `4141`                |
+| `PROXY_API_KEY`  | API ключ для аутентификации | `null`                |
 
 ## 📁 Структура проекта
 
@@ -154,14 +155,14 @@ deepaude/
 
 ## 🧪 Совместимость
 
-| Anthropic фича | Поддержка |
-|----------------|-----------|
-| Messages API | ✅ Полная |
-| Streaming | ✅ Полная |
-| Tool Use | ✅ Полная |
-| System prompts | ✅ Полная |
-| Multi-turn conversations | ✅ Полная |
-| Vision | ⏳ Планируется |
+| Anthropic фича           | Поддержка      |
+| ------------------------ | -------------- |
+| Messages API             | ✅ Полная      |
+| Streaming                | ✅ Полная      |
+| Tool Use                 | ✅ Полная      |
+| System prompts           | ✅ Полная      |
+| Multi-turn conversations | ✅ Полная      |
+| Vision                   | ⏳ Планируется |
 
 ## 🐛 Отладка
 
@@ -185,7 +186,7 @@ DEEPSEEK_DEBUG=true bun run index.ts
 ## 🤝 Вклад
 
 PR и Issues приветствуются!
-*P. s. Данное `README.md` было написано Deepseek'ом через Claude Code используя данный мост.*
+_P. s. Данное `README.md` было написано Deepseek'ом через Claude Code используя данный мост._
 
 ## 📄 Лицензия
 
