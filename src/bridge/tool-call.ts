@@ -90,7 +90,50 @@ function extractJsonCandidates(text: string): string[]
   return candidates;
 }
 
-export function parseToolCallFromText(text: string, tools: AnthropicTool[] | undefined): ParsedToolCall | null
+function tryParseToolCall(candidate: string, toolNames: Set<string>): ParsedToolCall | null
+{
+  let parsed: unknown;
+  try
+  {
+    parsed = JSON.parse(candidate);
+  }
+  catch
+  {
+    return null;
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+  {
+    return null;
+  }
+
+  const record = parsed as Record<string, unknown>;
+  const rawName =
+    typeof record.name === "string"
+      ? record.name
+      : typeof record.tool === "string"
+        ? record.tool
+        : null;
+
+  if (!rawName || !toolNames.has(rawName))
+  {
+    return null;
+  }
+
+  const rawInput = record.arguments ?? record.input ?? {};
+  const input = normalizeToolInput(rawInput);
+  if (!input)
+  {
+    return null;
+  }
+
+  return { name: rawName, input };
+}
+
+export function parseToolCallFromText(
+  text: string,
+  tools: AnthropicTool[] | undefined,
+): ParsedToolCall | null
 {
   if (!Array.isArray(tools) || tools.length === 0)
   {
@@ -98,41 +141,20 @@ export function parseToolCallFromText(text: string, tools: AnthropicTool[] | und
   }
 
   const toolNames = new Set(tools.map((tool) => tool.name));
-  const candidates = extractJsonCandidates(text);
 
-  for (const candidate of candidates)
+  // Primary: XML tag format <tool_call>...</tool_call>
+  const xmlMatch = /<tool_call>([\s\S]*?)<\/tool_call>/i.exec(text);
+  if (xmlMatch)
   {
-    let parsed: unknown;
-    try
-    {
-      parsed = JSON.parse(candidate);
-    }
-    catch
-    {
-      continue;
-    }
+    const result = tryParseToolCall(xmlMatch[1]?.trim() ?? "", toolNames);
+    if (result) return result;
+  }
 
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
-    {
-      continue;
-    }
-
-    const record = parsed as Record<string, unknown>;
-    const rawName =
-      typeof record.tool === "string" ? record.tool : typeof record.name === "string" ? record.name : null;
-    if (!rawName || !toolNames.has(rawName))
-    {
-      continue;
-    }
-
-    const rawInput = record.arguments ?? record.input ?? {};
-    const input = normalizeToolInput(rawInput);
-    if (!input)
-    {
-      continue;
-    }
-
-    return { name: rawName, input };
+  // Fallback: scan for bare JSON objects (handles markdown fences and raw JSON)
+  for (const candidate of extractJsonCandidates(text))
+  {
+    const result = tryParseToolCall(candidate, toolNames);
+    if (result) return result;
   }
 
   return null;

@@ -164,8 +164,6 @@ export async function handleMessages(req: Request): Promise<Response>
 
   const prompt = buildDeepseekPrompt(body);
 
-  // Link this message to the previous one so DeepSeek keeps a linear thread
-  // instead of creating a new root branch on every request.
   conversation.session.setParentMessageId(conversation.parentMessageId);
 
   let deepseekResponse: Response;
@@ -193,7 +191,6 @@ export async function handleMessages(req: Request): Promise<Response>
     return anthropicError(message, 502);
   }
 
-  // Advance the thread pointer so the next request continues from this response.
   if (deepseekOutput.responseMessageId !== null)
   {
     conversation.parentMessageId = deepseekOutput.responseMessageId;

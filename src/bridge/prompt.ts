@@ -109,18 +109,18 @@ function buildToolsInstruction(tools: AnthropicRequest["tools"]): string
     {
       const lines: string[] = [`- ${tool.name}`];
       if (tool.description) lines.push(`: ${tool.description}`);
-      if (tool.input_schema) lines.push(`\n  Input schema: ${toCompactJson(tool.input_schema)}`);
+      if (tool.input_schema) lines.push(`\n  Schema: ${toCompactJson(tool.input_schema)}`);
       return lines.join("");
     })
     .join("\n");
 
   return [
-    "You have access to the following tools:",
+    "Available tools:",
     toolList,
     "",
-    "To call a tool, output ONLY this JSON (no markdown fences, no explanations, nothing else):",
-    '{"tool":"<tool_name>","arguments":{...}}',
-    "If you do not need to call a tool, respond normally in plain text.",
+    "To call a tool respond with EXACTLY this format and NOTHING else (no text before or after):",
+    '<tool_call>{"name":"<tool_name>","arguments":{<arguments>}}</tool_call>',
+    "If no tool is needed, reply normally in plain text.",
   ].join("\n");
 }
 
@@ -131,9 +131,6 @@ export function buildDeepseekPrompt(body: AnthropicRequest): string
   const systemText = extractSystemText(body.system);
   if (systemText.length > 0) chunks.push(`System:\n${systemText}`);
 
-  const toolsInstruction = buildToolsInstruction(body.tools);
-  if (toolsInstruction.length > 0) chunks.push(toolsInstruction);
-
   for (const message of body.messages)
   {
     const text = extractMessageText(message.content);
@@ -141,6 +138,10 @@ export function buildDeepseekPrompt(body: AnthropicRequest): string
     const role = message.role === "assistant" ? "Assistant" : "User";
     chunks.push(`${role}:\n${text}`);
   }
+
+  // Placed last so the tool-call instruction is fresh when the model generates its response.
+  const toolsInstruction = buildToolsInstruction(body.tools);
+  if (toolsInstruction.length > 0) chunks.push(toolsInstruction);
 
   chunks.push("Assistant:");
   return chunks.join("\n\n");

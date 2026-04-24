@@ -54,7 +54,6 @@ export default class DeepseekClient
         const payload: ChatPayload = {
             prompt: message,
             model: CHAT_CONFIG.DEFAULT_MODEL,
-            // "default" only for the first message in a session (no parent yet)
             model_type: parentMessageId === null ? "default" : null,
             stream: true,
             temperature: CHAT_CONFIG.DEFAULT_TEMPERATURE,
