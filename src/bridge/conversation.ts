@@ -1,6 +1,19 @@
 import type { ConversationState, DeepseekClientInstance } from "./types";
 
 const conversationStore = new Map<string, ConversationState>();
+const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+function pruneStaleConversations(): void
+{
+  const now = Date.now();
+  for (const [key, state] of conversationStore)
+  {
+    if (now - state.updatedAt > SESSION_TTL_MS)
+    {
+      conversationStore.delete(key);
+    }
+  }
+}
 
 function getConversationKey(req: Request): string
 {
@@ -18,6 +31,8 @@ export async function getConversationState(
   client: DeepseekClientInstance,
 ): Promise<ConversationState>
 {
+  pruneStaleConversations();
+
   const key = getConversationKey(req);
   const existing = conversationStore.get(key);
   if (existing)
@@ -29,9 +44,7 @@ export async function getConversationState(
   const session = await client.createSession();
   const created: ConversationState = {
     session,
-    parentMessageId: session.getParentMessageId(),
-    systemText: null,
-    toolsFingerprint: null,
+    parentMessageId: null,
     updatedAt: Date.now(),
   };
   conversationStore.set(key, created);

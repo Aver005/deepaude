@@ -4,31 +4,26 @@ import type { ChatPayload, SendMessageOptions } from "../types";
 import ChatSession from "./ChatSession";
 import PowService from "../services/PowService";
 
-export default class DeepseekClient 
+export default class DeepseekClient
 {
     private readonly token: string;
     private readonly powService: PowService;
     private currentSession: ChatSession | null = null;
-    private readonly parentMessageId: number | null;
 
-    constructor(token: string, parentMessageId: number | null = null) 
-{
+    constructor(token: string)
+    {
         this.token = token;
         this.powService = new PowService();
-        this.parentMessageId = parentMessageId;
     }
 
-    async initialize(): Promise<void> 
-{
+    async initialize(): Promise<void>
+    {
         await this.powService.initialize();
     }
 
-    async createSession(): Promise<ChatSession> 
-{
-        this.currentSession = await ChatSession.create(
-            this.token,
-            this.parentMessageId,
-        );
+    async createSession(): Promise<ChatSession>
+    {
+        this.currentSession = await ChatSession.create(this.token);
         return this.currentSession;
     }
 
@@ -36,20 +31,19 @@ export default class DeepseekClient
         message: string,
         session: ChatSession | null = null,
         options: SendMessageOptions = {},
-    ): Promise<Response> 
-{
-        if (!session && !this.currentSession) 
-{
+    ): Promise<Response>
+    {
+        if (!session && !this.currentSession)
+        {
             session = await this.createSession();
         }
 
         const chatSession = session ?? this.currentSession;
-        if (!chatSession) 
-{
+        if (!chatSession)
+        {
             throw new Error("Missing chat session");
         }
 
-        chatSession.incrementMessageId();
         const powDataB64 = await this.powService.getPowResponse(
             this.token,
             API_ENDPOINTS.TARGET_PATH,
@@ -60,6 +54,7 @@ export default class DeepseekClient
         const payload: ChatPayload = {
             prompt: message,
             model: CHAT_CONFIG.DEFAULT_MODEL,
+            // "default" only for the first message in a session (no parent yet)
             model_type: parentMessageId === null ? "default" : null,
             stream: true,
             temperature: CHAT_CONFIG.DEFAULT_TEMPERATURE,
@@ -77,51 +72,14 @@ export default class DeepseekClient
             body: JSON.stringify(payload),
         });
 
-        if (!response.ok) 
-{
+        if (!response.ok)
+        {
             const errorData = await response.text();
             throw new Error(
                 `Chat completion failed: ${response.status} ${errorData}`,
             );
         }
 
-        chatSession.incrementMessageId();
         return response;
-    }
-
-    async *streamResponse(
-        response: Response,
-    ): AsyncGenerator<string, void, void> 
-{
-        if (!response.body) 
-{
-            return;
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-
-        try 
-{
-            while (true) 
-{
-                const { done, value } = await reader.read();
-                if (done) 
-{
-                    return;
-                }
-
-                if (!value) 
-{
-                    continue;
-                }
-
-                yield decoder.decode(value);
-            }
-        }
- finally 
-{
-            reader.releaseLock();
-        }
     }
 }

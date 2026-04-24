@@ -40,7 +40,7 @@ export interface DeepseekSession
 {
     getId(): string;
     getParentMessageId(): number | null;
-    setParentMessageId(parentMessageId: number | null): number | null;
+    setParentMessageId(parentMessageId: number | null): void;
 }
 
 export interface DeepseekClientInstance
@@ -77,8 +77,6 @@ export interface DeepseekCollectedOutput
 export interface ConversationState
 {
     session: DeepseekSession;
-    systemText: string | null;
-    toolsFingerprint: string | null;
     parentMessageId: number | null;
     updatedAt: number;
 }

@@ -3,7 +3,7 @@ import { getConversationState } from "./conversation";
 import { collectDeepseekOutput } from "./deepseek-stream";
 import { PROXY_API_KEY } from "./env";
 import { anthropicError } from "./errors";
-import { buildDeepseekPrompt, extractSystemText, getToolsFingerprint } from "./prompt";
+import { buildDeepseekPrompt } from "./prompt";
 import { splitTextForSse, writeSseEvent } from "./sse";
 import { parseToolCallFromText } from "./tool-call";
 import type { AnthropicRequest } from "./types";
@@ -149,44 +149,63 @@ export async function handleMessages(req: Request): Promise<Response>
     return anthropicError("`messages` must be a non-empty array");
   }
 
-  const client = await getClient();
-  const conversation = await getConversationState(req, client);
-  const systemText = extractSystemText(body.system);
-  const toolsFingerprint = getToolsFingerprint(body);
-  const shouldIncludeSystem = conversation.systemText !== systemText;
-  const shouldIncludeTools = conversation.toolsFingerprint !== toolsFingerprint;
-  const prompt = buildDeepseekPrompt(body, {
-    includeSystem: shouldIncludeSystem,
-    includeTools: shouldIncludeTools,
-  });
-
-  conversation.session.setParentMessageId(conversation.parentMessageId);
-
-  const deepseekResponse = await client.sendMessage(prompt, conversation.session, {
-    thinking_enabled: false,
-    search_enabled: false,
-  });
-
-  if (!deepseekResponse.ok)
+  let client: Awaited<ReturnType<typeof getClient>>;
+  let conversation: Awaited<ReturnType<typeof getConversationState>>;
+  try
   {
-    return anthropicError(`DeepSeek upstream failed with status ${deepseekResponse.status}`, 502);
+    client = await getClient();
+    conversation = await getConversationState(req, client);
+  }
+  catch (error)
+  {
+    const message = error instanceof Error ? error.message : "Failed to initialize DeepSeek client";
+    return anthropicError(message, 502);
   }
 
-  const anthropicModel = body.model || "deepseek-chat";
-  const messageId = `msg_${crypto.randomUUID().replace(/-/g, "")}`;
-  const toolCallId = `toolu_${crypto.randomUUID().replace(/-/g, "")}`;
-  const deepseekOutput = await collectDeepseekOutput(deepseekResponse);
-  const text = deepseekOutput.text;
-  const parsedToolCall = parseToolCallFromText(text, body.tools);
+  const prompt = buildDeepseekPrompt(body);
 
+  // Link this message to the previous one so DeepSeek keeps a linear thread
+  // instead of creating a new root branch on every request.
+  conversation.session.setParentMessageId(conversation.parentMessageId);
+
+  let deepseekResponse: Response;
+  try
+  {
+    deepseekResponse = await client.sendMessage(prompt, conversation.session, {
+      thinking_enabled: false,
+      search_enabled: false,
+    });
+  }
+  catch (error)
+  {
+    const message = error instanceof Error ? error.message : "DeepSeek upstream error";
+    return anthropicError(message, 502);
+  }
+
+  let deepseekOutput: Awaited<ReturnType<typeof collectDeepseekOutput>>;
+  try
+  {
+    deepseekOutput = await collectDeepseekOutput(deepseekResponse);
+  }
+  catch (error)
+  {
+    const message = error instanceof Error ? error.message : "Failed to parse DeepSeek response";
+    return anthropicError(message, 502);
+  }
+
+  // Advance the thread pointer so the next request continues from this response.
   if (deepseekOutput.responseMessageId !== null)
   {
     conversation.parentMessageId = deepseekOutput.responseMessageId;
     conversation.session.setParentMessageId(deepseekOutput.responseMessageId);
-    conversation.systemText = systemText;
-    conversation.toolsFingerprint = toolsFingerprint;
-    conversation.updatedAt = Date.now();
   }
+  conversation.updatedAt = Date.now();
+
+  const anthropicModel = body.model || "deepseek-chat";
+  const messageId = `msg_${crypto.randomUUID().replace(/-/g, "")}`;
+  const toolCallId = `toolu_${crypto.randomUUID().replace(/-/g, "")}`;
+  const text = deepseekOutput.text;
+  const parsedToolCall = parseToolCallFromText(text, body.tools);
 
   if (body.stream)
   {

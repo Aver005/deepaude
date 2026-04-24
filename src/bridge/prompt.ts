@@ -12,123 +12,71 @@ function toCompactJson(value: unknown): string
   }
 }
 
-function unknownContentToText(value: unknown): string
+function renderContentValue(value: unknown): string
 {
-  if (typeof value === "string")
-  {
-    return value;
-  }
+  if (typeof value === "string") return value;
 
   if (Array.isArray(value))
   {
-    const chunks: string[] = [];
-    for (const item of value)
-    {
-      if (typeof item === "string")
+    return value
+      .map((item) =>
       {
-        if (item.trim().length > 0)
+        if (typeof item === "string") return item.trim();
+        if (item && typeof item === "object")
         {
-          chunks.push(item.trim());
+          const r = item as { type?: unknown; text?: unknown };
+          if (r.type === "text" && typeof r.text === "string") return r.text.trim();
         }
-        continue;
-      }
-
-      if (!item || typeof item !== "object")
-      {
-        continue;
-      }
-
-      const record = item as { type?: unknown; text?: unknown };
-      if (record.type === "text" && typeof record.text === "string" && record.text.trim().length > 0)
-      {
-        chunks.push(record.text.trim());
-      }
-      else
-      {
-        chunks.push(toCompactJson(item));
-      }
-    }
-
-    return chunks.join("\n").trim();
+        return toCompactJson(item);
+      })
+      .filter((s) => s.length > 0)
+      .join("\n");
   }
 
-  if (value && typeof value === "object")
-  {
-    return toCompactJson(value);
-  }
-
-  if (value === null || value === undefined)
-  {
-    return "";
-  }
-
-  return String(value);
+  if (value && typeof value === "object") return toCompactJson(value);
+  return String(value ?? "");
 }
 
 function extractMessageText(content: AnthropicMessage["content"]): string
 {
-  if (typeof content === "string")
-  {
-    return content.trim();
-  }
+  if (typeof content === "string") return content.trim();
 
   const texts: string[] = [];
+
   for (const block of content)
   {
     if (block.type === "text")
     {
-      if (block.text.trim().length > 0)
-      {
-        texts.push(block.text.trim());
-      }
+      if (block.text.trim().length > 0) texts.push(block.text.trim());
       continue;
     }
 
     if (block.type === "tool_use")
     {
-      texts.push(
-        [
-          "[TOOL_USE]",
-          `name=${block.name}`,
-          `id=${block.id ?? "unknown"}`,
-          `input=${toCompactJson(block.input ?? {})}`,
-        ].join(" "),
-      );
+      texts.push(`[Tool call: ${block.name}]\nArguments: ${toCompactJson(block.input ?? {})}`);
       continue;
     }
 
     if (block.type === "tool_result")
     {
-      const rendered = unknownContentToText(block.content);
-      texts.push(
-        [
-          "[TOOL_RESULT]",
-          `tool_use_id=${block.tool_use_id ?? "unknown"}`,
-          `is_error=${block.is_error === true ? "true" : "false"}`,
-        ].join(" "),
-      );
-      if (rendered.length > 0)
-      {
-        texts.push(rendered);
-      }
+      const result = renderContentValue(block.content);
+      const prefix = block.is_error === true ? "[Tool error]" : "[Tool result]";
+      texts.push(result.length > 0 ? `${prefix}\n${result}` : prefix);
       continue;
     }
 
     if (block.type === "image")
     {
-      texts.push("[IMAGE_BLOCK]");
+      texts.push("[image attachment]");
     }
   }
 
-  return texts.join("\n").trim();
+  return texts.join("\n\n").trim();
 }
 
 export function extractSystemText(system: AnthropicRequest["system"]): string
 {
-  if (typeof system === "string")
-  {
-    return system.trim();
-  }
+  if (typeof system === "string") return system.trim();
 
   if (Array.isArray(system))
   {
@@ -138,9 +86,7 @@ export function extractSystemText(system: AnthropicRequest["system"]): string
       if (!block || typeof block !== "object") continue;
       const maybeText = (block as { text?: unknown }).text;
       if (typeof maybeText === "string" && maybeText.trim().length > 0)
-      {
         texts.push(maybeText.trim());
-      }
     }
     return texts.join("\n").trim();
   }
@@ -148,76 +94,52 @@ export function extractSystemText(system: AnthropicRequest["system"]): string
   if (system && typeof system === "object")
   {
     const maybeText = (system as { text?: unknown }).text;
-    if (typeof maybeText === "string")
-    {
-      return maybeText.trim();
-    }
+    if (typeof maybeText === "string") return maybeText.trim();
   }
 
   return "";
 }
 
-function appendToolsInstruction(chunks: string[], body: AnthropicRequest): void
+function buildToolsInstruction(tools: AnthropicRequest["tools"]): string
 {
-  if (Array.isArray(body.tools) && body.tools.length > 0)
-  {
-    const toolNames = body.tools.map((tool) => tool.name).join(", ");
-    chunks.push(
-      [
-        "Tools available:",
-        toolNames,
-        "If you need to call a tool, output ONLY valid JSON in this exact shape:",
-        '{"tool":"<tool_name>","arguments":{...}}',
-        "Do not add markdown fences, explanations, or fake tool results.",
-      ].join("\n"),
-    );
-  }
+  if (!Array.isArray(tools) || tools.length === 0) return "";
+
+  const toolList = tools
+    .map((tool) =>
+    {
+      const lines: string[] = [`- ${tool.name}`];
+      if (tool.description) lines.push(`: ${tool.description}`);
+      if (tool.input_schema) lines.push(`\n  Input schema: ${toCompactJson(tool.input_schema)}`);
+      return lines.join("");
+    })
+    .join("\n");
+
+  return [
+    "You have access to the following tools:",
+    toolList,
+    "",
+    "To call a tool, output ONLY this JSON (no markdown fences, no explanations, nothing else):",
+    '{"tool":"<tool_name>","arguments":{...}}',
+    "If you do not need to call a tool, respond normally in plain text.",
+  ].join("\n");
 }
 
-function getLastRelevantMessage(messages: AnthropicMessage[]): AnthropicMessage | null
-{
-  for (let index = messages.length - 1; index >= 0; index -= 1)
-  {
-    const message = messages[index];
-    if (message?.role === "user") return message;
-  }
-
-  if (messages.length === 0) return null;
-  return messages[messages.length - 1] ?? null;
-}
-
-export function getToolsFingerprint(body: AnthropicRequest): string
-{
-  if (!Array.isArray(body.tools) || body.tools.length === 0) return "";
-  return JSON.stringify(body.tools);
-}
-
-export function buildDeepseekPrompt(
-  body: AnthropicRequest,
-  options: { includeSystem: boolean; includeTools: boolean },
-): string
+export function buildDeepseekPrompt(body: AnthropicRequest): string
 {
   const chunks: string[] = [];
-  const systemText = extractSystemText(body.system);
-  if (options.includeSystem && systemText.length > 0)
-  {
-    chunks.push(`System:\n${systemText}`);
-  }
 
-  const message = getLastRelevantMessage(body.messages);
-  if (message)
+  const systemText = extractSystemText(body.system);
+  if (systemText.length > 0) chunks.push(`System:\n${systemText}`);
+
+  const toolsInstruction = buildToolsInstruction(body.tools);
+  if (toolsInstruction.length > 0) chunks.push(toolsInstruction);
+
+  for (const message of body.messages)
   {
     const text = extractMessageText(message.content);
-    if (text)
-    {
-      const role = message.role === "assistant" ? "Assistant" : "User";
-      chunks.push(`${role}:\n${text}`);
-    }
-  }
-
-  if (options.includeTools)
-  {
-    appendToolsInstruction(chunks, body);
+    if (!text) continue;
+    const role = message.role === "assistant" ? "Assistant" : "User";
+    chunks.push(`${role}:\n${text}`);
   }
 
   chunks.push("Assistant:");
